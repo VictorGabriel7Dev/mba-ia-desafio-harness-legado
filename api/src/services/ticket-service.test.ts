@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { TicketService, formatTicketRef } from './ticket-service'
-import { HttpError } from '../http/errors'
-import { CurrentUser, Ticket } from '../domain/ticket'
+import { TicketService } from './ticket-service'
+import { HttpError } from '../domain/errors'
+import { CurrentUser, formatTicketRef, ReplyWithAuthor, Ticket, TicketCategory, TicketPriority, TicketStatus } from '../domain/ticket'
 import { TicketFilter, TicketRepository, TicketUpdate } from '../repositories/ticket-repository'
 import { ReplyRepository } from '../repositories/reply-repository'
+import { UserRepository } from '../repositories/user-repository'
 
 class FakeTicketRepository implements TicketRepository {
   items: Ticket[] = []
@@ -51,15 +52,44 @@ class FakeTicketRepository implements TicketRepository {
     Object.assign(ticket, data, { updatedAt: new Date() })
     return ticket
   }
+
+  async countByStatus() {
+    return [] as { status: TicketStatus; count: number }[]
+  }
+
+  async countByCategory() {
+    return [] as { category: TicketCategory | null; count: number }[]
+  }
+
+  async countByPriority() {
+    return [] as { priority: TicketPriority | null; count: number }[]
+  }
 }
 
 class FakeReplyRepository implements ReplyRepository {
-  items: any[] = []
+  items: ReplyWithAuthor[] = []
 
-  async create(data: { ticketId: string; authorId: string; body: string }) {
-    const reply = { id: `reply-${this.items.length + 1}`, ...data, createdAt: new Date() }
+  async create(data: { ticketId: string; authorId: string; body: string }): Promise<ReplyWithAuthor> {
+    const reply: ReplyWithAuthor = {
+      id: `reply-${this.items.length + 1}`,
+      ...data,
+      createdAt: new Date(),
+      author: { id: data.authorId, name: 'Autor', role: 'agent' },
+    }
     this.items.push(reply)
     return reply
+  }
+}
+
+class FakeUserRepository implements UserRepository {
+  async findById() {
+    return null
+  }
+  async findByEmail() {
+    return null
+  }
+  async create(): Promise<never> {
+    throw new Error('não usado neste teste')
   }
 }
 
@@ -70,10 +100,10 @@ const otherAgent: CurrentUser = { id: 'a2', role: 'agent' }
 const admin: CurrentUser = { id: 'adm', role: 'admin' }
 
 async function expectHttpError(promise: Promise<unknown>, status: number, code: string) {
-  const err: any = await promise.catch((e) => e)
+  const err = await promise.catch((e) => e)
   expect(err).toBeInstanceOf(HttpError)
-  expect(err.status).toBe(status)
-  expect(err.code).toBe(code)
+  expect((err as HttpError).status).toBe(status)
+  expect((err as HttpError).code).toBe(code)
 }
 
 describe('TicketService', () => {
@@ -84,7 +114,7 @@ describe('TicketService', () => {
   beforeEach(() => {
     tickets = new FakeTicketRepository()
     replies = new FakeReplyRepository()
-    service = new TicketService(tickets, replies)
+    service = new TicketService(tickets, replies, new FakeUserRepository())
   })
 
   const valid = { title: 'Problema no app', description: 'O aplicativo fecha sozinho ao abrir' }
