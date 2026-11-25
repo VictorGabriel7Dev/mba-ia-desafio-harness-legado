@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
-import { UserRepository } from '../repositories/user-repository'
+import { HttpError } from '../domain/errors'
+import { UserRepository, userRepository } from '../repositories/user-repository'
 
 export class EmailTakenError extends Error {}
 export class InvalidCredentialsError extends Error {}
@@ -16,7 +17,7 @@ export const loginSchema = z.object({
   password: z.string(),
 })
 
-export function serializeUser(user: any) {
+function serializeUser(user: { id: string; name: string; email: string; role: string }) {
   return { id: user.id, name: user.name, email: user.email, role: user.role }
 }
 
@@ -38,4 +39,12 @@ export class AuthService {
     if (!ok) throw new InvalidCredentialsError('E-mail ou senha inválidos')
     return serializeUser(user)
   }
+
+  async me(userId: string) {
+    const user = await this.users.findById(userId)
+    if (!user) throw new HttpError(401, 'unauthorized', 'Usuário não encontrado')
+    return serializeUser(user)
+  }
 }
+
+export const authService = new AuthService(userRepository)

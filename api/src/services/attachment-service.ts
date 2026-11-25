@@ -1,16 +1,25 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import type { Request } from 'express'
-import { HttpError } from '../http/errors'
+import { HttpError } from '../domain/errors'
 import { CurrentUser } from '../domain/ticket'
-import { AttachmentRepository } from '../repositories/attachment-repository'
-import { TicketService } from './ticket-service'
+import { env } from '../config/env'
+import { AttachmentRepository, attachmentRepository } from '../repositories/attachment-repository'
+import { TicketService, ticketService } from './ticket-service'
 
-const uploadDir = process.env.UPLOAD_DIR || '/tmp/balcao/uploads'
+const uploadDir = env.UPLOAD_DIR
 
 const MAX_SIZE = 5 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'application/pdf', 'text/plain']
+
+// Formato mínimo de arquivo recebido do upload. Descrito aqui, de forma estrutural,
+// para o serviço não importar o multer nem o express (invariante G6): a rota passa req.file.
+type UploadedFile = {
+  size: number
+  mimetype: string
+  originalname: string
+  buffer: Buffer
+}
 
 export class AttachmentService {
   constructor(
@@ -18,11 +27,9 @@ export class AttachmentService {
     private tickets: TicketService,
   ) {}
 
-  async upload(req: Request, ticketId: string) {
-    const user: CurrentUser = (req as any).user
+  async upload(user: CurrentUser, ticketId: string, file: UploadedFile | undefined) {
     await this.tickets.getById(user, ticketId)
 
-    const file = req.file
     if (!file) {
       throw new HttpError(422, 'validation_error', 'Envie o arquivo no campo file')
     }
@@ -54,9 +61,11 @@ export class AttachmentService {
     }
     try {
       await this.tickets.getById(user, attachment.ticketId)
-    } catch (err) {
+    } catch {
       throw new HttpError(404, 'not_found', 'Anexo não encontrado')
     }
     return { attachment, filePath: path.join(uploadDir, attachment.storedName) }
   }
 }
+
+export const attachmentService = new AttachmentService(attachmentRepository, ticketService)

@@ -1,21 +1,15 @@
 import { Router } from 'express'
 import multer from 'multer'
-import OpenAI from 'openai'
-import { asyncHandler, HttpError } from '../errors'
+import { asyncHandler } from '../errors'
 import { requireAuth } from '../middlewares/auth'
-import { TicketService } from '../../services/ticket-service'
-import { ticketRepository } from '../../repositories/ticket-repository'
-import { replyRepository } from '../../repositories/reply-repository'
-import { attachmentRepository } from '../../repositories/attachment-repository'
-import { AttachmentService } from '../../services/attachment-service'
-import { userRepository } from '../../repositories/user-repository'
+import { ReplyWithAuthor, Ticket } from '../../domain/ticket'
+import { ticketService } from '../../services/ticket-service'
+import { attachmentService } from '../../services/attachment-service'
 
 const router = Router()
-const ticketService = new TicketService(ticketRepository, replyRepository)
-const attachmentService = new AttachmentService(attachmentRepository, ticketService)
 const upload = multer({ storage: multer.memoryStorage() })
 
-export function toTicketJson(t: any) {
+function toTicketJson(t: Ticket) {
   return {
     id: t.id,
     title: t.title,
@@ -31,7 +25,7 @@ export function toTicketJson(t: any) {
   }
 }
 
-function toReplyJson(r: any) {
+function toReplyJson(r: ReplyWithAuthor) {
   return {
     id: r.id,
     ticketId: r.ticketId,
@@ -47,7 +41,9 @@ router.use(requireAuth)
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const result = await ticketService.list(req.user, req.query)
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined
+    const page = typeof req.query.page === 'string' ? req.query.page : undefined
+    const result = await ticketService.list(req.user!, { status, page })
     res.json({ ...result, items: result.items.map(toTicketJson) })
   }),
 )
@@ -55,7 +51,7 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    const ticket = await ticketService.create(req.user, req.body)
+    const ticket = await ticketService.create(req.user!, req.body)
     res.status(201).json(toTicketJson(ticket))
   }),
 )
@@ -63,7 +59,7 @@ router.post(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    const ticket = await ticketService.getDetails(req.user, req.params.id)
+    const ticket = await ticketService.getDetails(req.user!, req.params.id)
     res.json({
       ...toTicketJson(ticket),
       replies: ticket.replies.map(toReplyJson),
@@ -75,7 +71,7 @@ router.get(
 router.post(
   '/:id/assign',
   asyncHandler(async (req, res) => {
-    const ticket = await ticketService.assign(req.user, req.params.id)
+    const ticket = await ticketService.assign(req.user!, req.params.id)
     res.json(toTicketJson(ticket))
   }),
 )
@@ -83,7 +79,7 @@ router.post(
 router.post(
   '/:id/resolve',
   asyncHandler(async (req, res) => {
-    const ticket = await ticketService.resolve(req.user, req.params.id)
+    const ticket = await ticketService.resolve(req.user!, req.params.id)
     res.json(toTicketJson(ticket))
   }),
 )
@@ -91,7 +87,7 @@ router.post(
 router.post(
   '/:id/replies',
   asyncHandler(async (req, res) => {
-    const reply = await ticketService.addReply(req.user, req.params.id, req.body)
+    const reply = await ticketService.addReply(req.user!, req.params.id, req.body)
     res.status(201).json(toReplyJson(reply))
   }),
 )
@@ -100,7 +96,7 @@ router.post(
   '/:id/attachments',
   upload.single('file'),
   asyncHandler(async (req, res) => {
-    const attachment = await attachmentService.upload(req, req.params.id)
+    const attachment = await attachmentService.upload(req.user!, req.params.id, req.file)
     res.status(201).json(attachment)
   }),
 )
@@ -108,31 +104,8 @@ router.post(
 router.post(
   '/:id/suggest-reply',
   asyncHandler(async (req, res) => {
-    if (req.user.role === 'customer') {
-      throw new HttpError(403, 'forbidden', 'Só atendentes e admins podem pedir sugestão')
-    }
-    const ticket = await ticketService.getById(req.user, req.params.id)
-    const customer = await userRepository.findById(ticket.customerId)
-    const customerName = customer ? customer.name : 'cliente'
-
-    if (process.env.AI_MODE === 'openai') {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'Você é um atendente de suporte. Escreva uma resposta curta e educada, em português, para o chamado.',
-          },
-          { role: 'user', content: `Cliente: ${customerName}\nTítulo: ${ticket.title}\n\n${ticket.description}` },
-        ],
-      })
-      return res.json({ suggestion: completion.choices[0].message.content })
-    }
-
-    res.json({
-      suggestion: `Olá, ${customerName}! Recebemos o seu chamado "${ticket.title}" e a nossa equipe já está analisando.`,
-    })
+    const suggestion = await ticketService.suggestReply(req.user!, req.params.id)
+    res.json({ suggestion })
   }),
 )
 

@@ -1,11 +1,13 @@
 import { z } from 'zod'
-import { HttpError } from '../http/errors'
-import { CurrentUser, Ticket, TICKET_STATUSES, TicketStatus } from '../domain/ticket'
-import { TicketRepository } from '../repositories/ticket-repository'
-import { ReplyRepository } from '../repositories/reply-repository'
+import { HttpError } from '../domain/errors'
+import { CurrentUser, ReplyWithAuthor, Ticket, TicketDetails, TICKET_STATUSES, TicketStatus } from '../domain/ticket'
+import { TicketRepository, ticketRepository } from '../repositories/ticket-repository'
+import { ReplyRepository, replyRepository } from '../repositories/reply-repository'
+import { UserRepository, userRepository } from '../repositories/user-repository'
 import { notifyAssignee } from './notification-service'
+import { suggestReply as suggestReplyAi } from '../integrations/ai-client'
 
-export const PAGE_SIZE = 20
+const PAGE_SIZE = 20
 
 const createTicketSchema = z.object({
   title: z.string().trim().min(3, 'Título deve ter entre 3 e 120 caracteres').max(120, 'Título deve ter entre 3 e 120 caracteres'),
@@ -20,24 +22,14 @@ const replySchema = z.object({
   body: z.string().trim().min(1, 'A resposta não pode ser vazia').max(5000, 'A resposta pode ter no máximo 5000 caracteres'),
 })
 
-export function formatTicketRef(ticket: { id: string; title: string }) {
-  return `#${ticket.id.slice(0, 8)} (${ticket.title})`
-}
-
-const SLA_HOURS = { urgent: 4, high: 8, medium: 24, low: 72 }
-
-export function calculateSlaDeadline(ticket: Pick<Ticket, 'createdAt' | 'priority'>) {
-  const hours = SLA_HOURS[ticket.priority || 'medium']
-  return new Date(ticket.createdAt.getTime() + hours * 60 * 60 * 1000)
-}
-
 export class TicketService {
   constructor(
     private tickets: TicketRepository,
     private replies: ReplyRepository,
+    private users: UserRepository,
   ) {}
 
-  async create(user: CurrentUser, input: unknown) {
+  async create(user: CurrentUser, input: unknown): Promise<Ticket> {
     if (user.role !== 'customer') {
       throw new HttpError(403, 'forbidden', 'Só clientes podem abrir chamados')
     }
@@ -70,12 +62,14 @@ export class TicketService {
     return ticket
   }
 
-  async getDetails(user: CurrentUser, id: string) {
+  async getDetails(user: CurrentUser, id: string): Promise<TicketDetails> {
     await this.getById(user, id)
-    return this.tickets.findByIdWithDetails(id)
+    const details = await this.tickets.findByIdWithDetails(id)
+    // getById já garantiu que o chamado existe, então os detalhes não são nulos.
+    return details!
   }
 
-  async assign(user: CurrentUser, id: string) {
+  async assign(user: CurrentUser, id: string): Promise<Ticket> {
     if (user.role === 'customer') {
       throw new HttpError(403, 'forbidden', 'Só atendentes e admins assumem chamados')
     }
@@ -88,7 +82,7 @@ export class TicketService {
     return updated
   }
 
-  async resolve(user: CurrentUser, id: string) {
+  async resolve(user: CurrentUser, id: string): Promise<Ticket> {
     if (user.role === 'customer') {
       throw new HttpError(403, 'forbidden', 'Só atendentes e admins resolvem chamados')
     }
@@ -102,7 +96,7 @@ export class TicketService {
     return this.tickets.update(id, { status: 'resolved' })
   }
 
-  async addReply(user: CurrentUser, id: string, input: unknown) {
+  async addReply(user: CurrentUser, id: string, input: unknown): Promise<ReplyWithAuthor> {
     const ticket = await this.getById(user, id)
     const parsed = replySchema.safeParse(input)
     if (!parsed.success) {
@@ -114,4 +108,16 @@ export class TicketService {
     }
     return reply
   }
+
+  async suggestReply(user: CurrentUser, id: string): Promise<string> {
+    if (user.role === 'customer') {
+      throw new HttpError(403, 'forbidden', 'Só atendentes e admins podem pedir sugestão')
+    }
+    const ticket = await this.getById(user, id)
+    const customer = await this.users.findById(ticket.customerId)
+    const customerName = customer ? customer.name : 'cliente'
+    return suggestReplyAi({ customerName, title: ticket.title, description: ticket.description })
+  }
 }
+
+export const ticketService = new TicketService(ticketRepository, replyRepository, userRepository)
