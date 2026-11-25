@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Hook de pre-commit do Balcão. Roda os gates de TIPO (G1) e LINT (G2) e bloqueia
+# o commit se qualquer um acusar violação. É ativado pelo scripts/up.sh, que
+# aponta core.hooksPath para scripts/githooks - num clone novo o hook fica ativo
+# logo depois da subida, sem passo extra.
+#
+# Os gates imprimem uma linha "G1 <arquivo>" / "G2 <arquivo>" por violação e saem
+# com código 0 mesmo com violação (código != 0 é só falha de infraestrutura).
+# Então aqui bloqueamos tanto quando há linha de violação quanto quando o gate
+# quebra.
+
+set -u
+
+REPO="$(git rev-parse --show-toplevel)"
+cd "$REPO" || exit 1
+
+roda_gate() {
+  local nome="$1" script="$2"
+  local saida rc
+  saida="$(node "$script" 2>/tmp/balcao-hook-$$.err)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "[pre-commit] o gate de $nome quebrou (código $rc):" >&2
+    cat "/tmp/balcao-hook-$$.err" >&2
+    rm -f "/tmp/balcao-hook-$$.err"
+    return 2
+  fi
+  rm -f "/tmp/balcao-hook-$$.err"
+  if [ -n "$saida" ]; then
+    echo "[pre-commit] violações de $nome:" >&2
+    echo "$saida" >&2
+    return 1
+  fi
+  return 0
+}
+
+falhou=0
+roda_gate "tipo (G1)" "scripts/gate-tsc.mjs" || falhou=1
+roda_gate "lint (G2)" "scripts/gate-eslint.mjs" || falhou=1
+
+if [ "$falhou" -ne 0 ]; then
+  echo "[pre-commit] commit bloqueado: corrija os problemas de tipo/lint acima." >&2
+  exit 1
+fi
+
+echo "[pre-commit] tipo e lint OK."
+exit 0

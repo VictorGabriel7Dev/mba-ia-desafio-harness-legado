@@ -9,6 +9,7 @@
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
     "worker": "tsx --env-file=.env src/jobs/triage-worker.ts",
+    "migrate": "prisma migrate deploy",
     "seed": "tsx --env-file=.env prisma/seed.ts",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts"
