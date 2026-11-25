@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.ts",
+    "src/jobs/triage-worker.ts",
+    "prisma/seed.ts",
+    "src/**/*.test.ts",
+    "test/**/*.test.ts"
+  ],
+  "project": ["src/**/*.ts"],
+  "ignore": ["test/**"],
+  "ignoreDependencies": [
+    "eslint",
+    "typescript-eslint",
+    "@eslint/js",
+    "globals",
+    "knip"
+  ],
+  "ignoreBinaries": ["tsc"]
+}

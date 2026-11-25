@@ -1,0 +1,6 @@
+// Exemplo de violação da regra G12 (instância única do Prisma).
+// Só api/src/repositories/prisma.ts pode chamar "new PrismaClient(".
+// Aqui um serviço cria a própria instância, espalhando conexões.
+import { PrismaClient } from '@prisma/client'
+
+export const bancoExtra = new PrismaClient()

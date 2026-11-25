@@ -1,0 +1,7 @@
+// Exemplo de violação da regra G11 (pureza do domínio).
+// O domínio NÃO pode importar de outras camadas; aqui ele puxa de services.
+import { PAGE_SIZE } from '../services/ticket-service'
+
+export function tamanhoDaPagina(): number {
+  return PAGE_SIZE
+}

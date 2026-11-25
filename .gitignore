@@ -1,3 +1,11 @@
 node_modules
 .env
 dist
+
+# log de dev interno, fora do entregavel
+_DESENVOLVIMENTO.md
+
+# caches gerados pelos gates (vitest, eslint, tsbuildinfo)
+.vitest
+.eslintcache
+*.tsbuildinfo
